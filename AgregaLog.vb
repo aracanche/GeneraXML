@@ -1,0 +1,3 @@
+﻿Module AgregaLog
+
+End Module
