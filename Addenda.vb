@@ -26,6 +26,8 @@ Public Class Documento
     Public Property Agente As String
     Public Property Movimientos As List(Of Movimiento)
     Public Property TituloDocumento As String
+    Public Property DescripcionMetodoPago As String
+
 End Class
 Public Class Movimiento
     Public Property PorcDescto As Decimal

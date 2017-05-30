@@ -109,6 +109,7 @@ Module Module1
                         Else
                             If Directory.Exists(XMLOrigen) Then
                                 LlenoDatosAddenda = GeneraAddendaSAP()
+
                             End If
                         End If
                         If LlenoDatosAddenda Then
@@ -222,19 +223,23 @@ Module Module1
             'Documento
             Select Case TipoDocumento
                 Case FormatoPDF.Factura, FormatoPDF.FacturaIVA, FormatoPDF.FacturaRenta
-                    sSql = "Select CardCode, isnull(DiscPrcnt,0)DiscPrcnt, SlpCode, U_OrdenCompra, U_TotalPP, U_FechaPP, DocDueDate, Comments, DocEntry, DocTotal, DocDate, EDocNum from OINV where DocSubType='--' and DocNum=" + Folio.ToString
+                    sSql = "Select CardCode, isnull(DiscPrcnt,0)DiscPrcnt, SlpCode, U_OrdenCompra, U_TotalPP, U_FechaPP, DocDueDate, Comments, DocEntry, DocTotal, DocDate, EDocNum, u_Metodo from OINV where DocSubType='--' and DocNum=" + Folio.ToString
                 Case FormatoPDF.Devolucion, FormatoPDF.NotaCredito
-                    sSql = "Select CardCode, isnull(DiscPrcnt,0)DiscPrcnt, SlpCode, U_OrdenCompra, U_TotalPP, U_FechaPP, DocDueDate, Comments, DocEntry, DocTotal, DocDate, EDocNum from ORIN where DocNum=" + Folio.ToString
+                    sSql = "Select CardCode, isnull(DiscPrcnt,0)DiscPrcnt, SlpCode, U_OrdenCompra, U_TotalPP, U_FechaPP, DocDueDate, Comments, DocEntry, DocTotal, DocDate, EDocNum, u_Metodo from ORIN where DocNum=" + Folio.ToString
                 Case FormatoPDF.NotaCargo
-                    sSql = "Select CardCode, isnull(DiscPrcnt,0)DiscPrcnt, SlpCode, U_OrdenCompra, U_TotalPP, U_FechaPP, DocDueDate, Comments, DocEntry, DocTotal, DocDate, EDocNum from OINV where  DocSubType='dn' and DocNum=" + Folio.ToString
+                    sSql = "Select CardCode, isnull(DiscPrcnt,0)DiscPrcnt, SlpCode, U_OrdenCompra, U_TotalPP, U_FechaPP, DocDueDate, Comments, DocEntry, DocTotal, DocDate, EDocNum, u_Metodo from OINV where  DocSubType='dn' and DocNum=" + Folio.ToString
             End Select
+            'sSql += " and EDocNum is Not null"
             dT = GetSQLSAP(sSql)
             Dim DocEntry As Integer
             Dim TotalDocumento As Decimal
             Dim PorcDescDoc As Decimal
             Dim Fecha As Date
             Dim Agente As Integer
+            Dim MetPago As String
+
             Dim dR As DataRow
+
             If dT.Rows.Count > 0 Then
                 dR = dT.Rows(0)
                 cReceptor.Codigo = dR("CardCode")
@@ -242,18 +247,40 @@ Module Module1
                 cDocumento.FechaPP = Fecha.ToString("dd 'de' MMMM 'de' yyyy")
                 Fecha = dR("DocDueDate")
                 cDocumento.FechaVence = Fecha.ToString("dd 'de' MMMM 'de' yyyy")
-                'cDocumento.ImporteLetra = ""
                 cDocumento.ImportePP = Math.Round(IIf(IsDBNull(dR("U_TotalPP")), 0, dR("U_TotalPP")), 2)
                 cDocumento.OrdenCompra = IIf(IsDBNull(dR("U_OrdenCompra")), "", dR("U_OrdenCompra"))
+                MetPago = IIf(IsDBNull(dR("U_Metodo")), "", dR("U_Metodo"))
+                'MsgBox("Metodo de Pago: " + MetPago)
+                Select Case MetPago
+                    Case "98"
+                        cDocumento.DescripcionMetodoPago = "(NO IDENTIFICADO)"
+                    Case "02"
+                        cDocumento.DescripcionMetodoPago = "(CHEQUE)"
+                    Case "03"
+                        cDocumento.DescripcionMetodoPago = "(TRANSFERENCIA ELECTRÓNICA)"
+                    Case "01"
+                        cDocumento.DescripcionMetodoPago = "(EFECTIVO)"
+                    Case Else
+                        cDocumento.DescripcionMetodoPago = ""
+                End Select
+                'MsgBox("Descripción Metodo de Pago: " + cDocumento.DescripcionMetodoPago)
+
                 cDocumento.TituloDocumento = ""
 
                 Agente = dR("SlpCode")
                 DocEntry = dR("DocEntry")
                 TotalDocumento = dR("DocTotal")
                 cDocumento.ImporteLetra = Numero(TotalDocumento)
-                PorcDescDoc = dR("DiscPrcnt") / 100
-                UUID = dR("EDocNum")
+                PorcDescDoc = dR("DiscPrcnt") ' / 100
+                UUID = IIf(IsDBNull(dR("EDocNum")), "", dR("EDocNum"))
+                'MsgBox(DocEntry)
+                If DocEntry = 2414 Then
+                    UUID = "73D3C6EE-0251-4E17-B01D-57F4919CAEF6"
+                ElseIf DocEntry = 2413 Then
+                    UUID = "C57448C8-39EC-494B-9DD6-7C468D485DBC"
+                End If
                 FechaDocumento = dR("DocDate")
+
 
                 Select Case TipoDocumento
                     Case FormatoPDF.Factura, FormatoPDF.FacturaIVA, FormatoPDF.FacturaRenta
@@ -270,7 +297,11 @@ Module Module1
                             cDocumento.TituloDocumento = "DEVOLUCIÓN SOBRE VENTA"
                         End If
                 End Select
-
+            Else
+                If bEsParametro Then
+                    MsgBox("El número de documento no existe o no ha sido timbrado", vbExclamation)
+                End If
+                Return False
             End If
 
             If Agente > 0 Then
@@ -321,7 +352,7 @@ Module Module1
                         Else
                             cMovi.Detalle = "" 'GetFacturaAsociada(DocEntry) 'Tengo que sacar la factura asociada a la devolución
                         End If
-                        cMovi.PorcDescto = Math.Round(PorcDescDoc * (1 + dR("DiscPrcnt") / 100) * 100, 2)
+                        cMovi.PorcDescto = Math.Round(PorcDescDoc, 2) 'Math.Round(PorcDescDoc * (1 + dR("DiscPrcnt") / 100) * 100, 2)
                         'Pongo esta muleta porque solo el formato de renta imprime los detalles de un movimiento
                         If cMovi.Detalle.Length > 0 Then
                             TipoDocumento = FormatoPDF.FacturaRenta
@@ -346,6 +377,7 @@ Module Module1
                 cAddenda.Receptor = cReceptor
 
                 'Completamos la ubicación del archivo XML Origen
+                Dim sXMLOrigen As String = XMLOrigen
                 XMLOrigen += Year(FechaDocumento).ToString + "-" + Month(FechaDocumento).ToString("00") + "\" + cReceptor.Codigo.ToString + "\"
                 Select Case TipoDocumento
                     Case FormatoPDF.Factura, FormatoPDF.FacturaIVA, FormatoPDF.FacturaRenta
@@ -356,6 +388,26 @@ Module Module1
 
                 End Select
                 XMLOrigen += "\" + UUID.ToString + ".xml"
+
+                If Not File.Exists(XMLOrigen) Then
+                    'Si no existe el XML en el mes correspondiente a la factura, lo buscamos en el siguiente mes
+                    Dim FechaTMP As Date
+                    If FechaDocumento.Month <> 12 Then
+                        FechaTMP = DateSerial(FechaDocumento.Year, FechaDocumento.Month + 1, 1)
+                    Else
+                        FechaTMP = DateSerial(FechaDocumento.Year + 1, 1, 1)
+                    End If
+                    XMLOrigen = sXMLOrigen.ToString + Year(FechaTMP).ToString + "-" + Month(FechaTMP).ToString("00") + "\" + cReceptor.Codigo.ToString + "\"
+                    Select Case TipoDocumento
+                        Case FormatoPDF.Factura, FormatoPDF.FacturaIVA, FormatoPDF.FacturaRenta
+                            XMLOrigen += "IN"
+                        Case FormatoPDF.Devolucion, FormatoPDF.NotaCredito
+                            XMLOrigen += "CM"
+                        Case FormatoPDF.NotaCargo
+
+                    End Select
+                    XMLOrigen += "\" + UUID.ToString + ".xml"
+                End If
                 If cAddenda.Documento.Movimientos.Count > 0 Then
                     Return True
                 Else
@@ -468,6 +520,8 @@ Module Module1
     End Sub
 
     Private Sub GeneraPDF()
+        Dim Etapa As String = ""
+
         Try
             'Nos conectamos a la BD para obtener de los parametros la direccion de servicio web que genera las facturas
             GetParametrosCrearPDF()
@@ -480,12 +534,16 @@ Module Module1
             If UrlGeneraPDF.Length > 0 Then
                 If Directory.Exists(RutaPDFTemp) And Directory.Exists(RutaXMLTemp) Then
                     'Generamos la Addenda en la ruta XMLTemp
+                    Etapa = "Generando XML"
                     GenerarAddendaXML()
                     DestinoXML = RutaXMLTemp + TipoDocumento.ToString + Folio.ToString + ".XML"
+                    Etapa = "Destino XML=" + DestinoXML.ToString
                     If File.Exists(DestinoXML) Then
+                        Etapa = "El XML Destino ya existía, se va a eliminar " + DestinoXML.ToString
                         File.Delete(DestinoXML)
                     End If
                     'Copiamos el XML del CFDI a \\faretdb1\inetpub\wwwroot\xml
+                    Etapa = "Se va a copiar el XML a su destino." + vbCrLf + "Origen=" + XMLOrigen.ToString + vbCrLf + "Destino=" + DestinoXML.ToString
                     File.Copy(XMLOrigen, DestinoXML)
 
                     FileXMLFiscal = DestinoXML.Replace(RutaXMLTemp, "")
@@ -517,29 +575,63 @@ Module Module1
                     UrlGeneraPDF += "&tipo=" + tFormato.ToString
 
                     'Ejecutar URL: ?tipo=f/frenta/fiva/nc/d/pp&copia=0/1&xml_fiscal=test_x.xml&xml_addenda=addenda_x.xml&pdf='time'_x.pdf
+                    Etapa = "URL para generar PDF:" + vbCrLf + UrlGeneraPDF
                     Dim Request As WebRequest = WebRequest.Create(UrlGeneraPDF)
                     Dim Response As WebResponse = CType(Request.GetResponse, HttpWebResponse)
                     Dim DataStream As Stream = Response.GetResponseStream
                     Dim Reader As New StreamReader(DataStream)
                     Dim ResponseFromServer As String = Reader.ReadToEnd
+                    Etapa = "Respuesta del servidor :" + ResponseFromServer.ToString
                     If ResponseFromServer = 1 Then
+                        'Vamos a poner un sleep si todavía no está disponible el archivo
+                        For i = 1 To 30
+                            If Not File.Exists(RutaPDFTemp + FilePDF) Then
+                                Threading.Thread.Sleep(1000)
+                            Else
+                                Exit For
+                            End If
+                        Next
+
+                        '''''''Etapa = "Archivo PDF por copiar: " + DestinoPDF + FilePDF
+                        '''''''If File.Exists(DestinoPDF + FilePDF) Then
+                        '''''''    ' MsgBox("El archivo " + DestinoPDF + FilePDF + " ya existe, se va a eliminar", vbExclamation)
+                        '''''''    Etapa = "El archivo PDF Destino ya existe: " + DestinoPDF + FilePDF + " se va a eliminar"
+                        '''''''    File.Delete(DestinoPDF + FilePDF)
+                        '''''''    ' MsgBox("Archivo " + DestinoPDF + FilePDF + " eliminado", vbExclamation)
+                        '''''''End If
                         'Copiar PDF a la carpeta DestinoPDF
-                        If File.Exists(DestinoPDF + FilePDF) Then
-                            File.Delete(DestinoPDF + FilePDF)
-                        End If
-                        File.Copy(RutaPDFTemp + FilePDF, DestinoPDF + FilePDF)
+                        Try
+                            Etapa = "Copiando el archivo PDF." + vbCrLf + "Origen: " + RutaPDFTemp + FilePDF + vbCrLf + "Destino: " + DestinoPDF + FilePDF
+                            File.Copy(RutaPDFTemp + FilePDF, DestinoPDF + FilePDF, True)
+                        Catch ex As Exception
+                            'MsgBox(DateDiff("n", File.GetLastWriteTime(DestinoPDF + FilePDF), Now) & vbCrLf & File.GetLastWriteTime(DestinoPDF + FilePDF) & vbCrLf & Now)
+                            If DateDiff("n", File.GetLastWriteTime(DestinoPDF + FilePDF), Now) > 5 Then
+                                'solo que tenga más de 5 minutos creado el archivo PDF y no se haya podido reemplezar, mostraremos error.
+                                'Si no, significa se se está enviando nuevamente el correo así que el archivo creado inicialmente, nos sigue funcionando
+                                MsgBox("Error GeneraPDF: " + ex.Message.ToString + vbCrLf + "Etapa: " + Etapa, vbExclamation)
+                            End If
+                        End Try
                     End If
                     Reader.Dispose()
                     DataStream.Dispose()
                     'Eliminamos los XML y PDF de la carpeta de temporales
-                    File.Delete(RutaPDFTemp + FilePDF)
-                    File.Delete(RutaXMLTemp + FileXMLAddenda)
-                    File.Delete(RutaXMLTemp + FileXMLFiscal)
+                    Etapa = "Eliminando PDF Temporal: " + RutaPDFTemp + FilePDF
+                    If File.Exists(RutaPDFTemp + FilePDF) Then
+                        File.Delete(RutaPDFTemp + FilePDF)
+                    End If
+                    Etapa = "Eliminando XML Addenda Temporal: " + RutaXMLTemp + FileXMLAddenda
+                    If File.Exists(RutaXMLTemp + FileXMLAddenda) Then
+                        File.Delete(RutaXMLTemp + FileXMLAddenda)
+                    End If
+                    Etapa = "Eliminando XML Fiscal Temporal: " + RutaXMLTemp + FileXMLFiscal
+                    If File.Exists(RutaXMLTemp + FileXMLFiscal) Then
+                        File.Delete(RutaXMLTemp + FileXMLFiscal)
+                    End If
                 End If
             End If
         Catch ex As Exception
             If bEsParametro Then
-                MsgBox("Error GeneraPDF: " + ex.Message.ToString, vbExclamation)
+                MsgBox("Error GeneraPDF: " + ex.Message.ToString + vbCrLf + Etapa, vbExclamation)
             End If
         End Try
 
